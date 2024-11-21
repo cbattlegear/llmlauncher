@@ -1,0 +1,32 @@
+[information]
+model_name = "Azure OpenAI"
+
+[[properties]]
+name = "endpoint"
+description = "LLM Endpoint URL"
+
+[[properties]]
+name = "deployment_name"
+description = "Deployment Name"
+
+[[properties]]
+name = "api_key"
+description = "API Key"
+
+[templates]
+endpoint_template = "$endpoint/openai/deployments/$deployment_name/chat/completions?api-version=2024-02-01"
+data_template = """
+{
+    "messages": [
+        {"role": "system", "content": "$llm_system_prompt"},
+        {"role": "user", "content": "$llm_user_prompt"}
+    ]
+}
+"""
+header_template = """
+{
+    "Content-Type": "application/json",
+    "api-key": "$api_key"
+}
+"""
+response_path = "$.choices[0].message.content"
