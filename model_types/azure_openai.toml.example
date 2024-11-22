@@ -1,0 +1,55 @@
+# This is an example TOML file for the Azure OpenAI model type
+# Please use this as a reference to create your own model type TOML file for LLM Launcher
+
+[information]
+# Information must contain the Property model_name, this is what will be shown in the dropdown to select the model type
+model_name = "Azure OpenAI"
+
+# Properties are the fields that the user will need to fill in to use the model type
+# Each property must have a name and a description
+# The name is used to reference the property in the templates
+# The description is shown to the user when they are filling in the properties
+# You can add as many properties as you need to make your model type work
+[[properties]]
+name = "endpoint"
+description = "LLM Endpoint URL"
+
+[[properties]]
+name = "deployment_name"
+description = "Deployment Name"
+
+[[properties]]
+name = "api_key"
+description = "API Key"
+
+# Templates are the templates that will be used to build the API calls
+# Templates must include an endpoint_template, data_template, header_template, and response_path
+# Note that the templates can include variables that will be replaced with the values from the properties
+# The variables must begin with $ and should match the name of the property in the properties section
+
+[templates]
+# The endpoint_template is the URL that the API call will be made to
+endpoint_template = "$endpoint/openai/deployments/$deployment_name/chat/completions?api-version=2024-02-01"
+
+# The data_template is the JSON data that will be sent in the body of the API call
+# To use the system and user prompts from the UI, you can use the $llm_system_prompt and $llm_user_prompt variables
+data_template = """
+{
+    "messages": [
+        {"role": "system", "content": "$llm_system_prompt"},
+        {"role": "user", "content": "$llm_user_prompt"}
+    ]
+}
+"""
+
+# The header_template is the headers that will be sent with the API call
+header_template = """
+{
+    "Content-Type": "application/json",
+    "api-key": "$api_key"
+}
+"""
+
+# The response_path is the JSONPath in the API response where the model output can be found
+# The response_path should point to the content of the message in the response and is what will be displayed to the user
+response_path = "$.choices[0].message.content"
