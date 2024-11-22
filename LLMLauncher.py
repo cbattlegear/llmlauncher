@@ -8,6 +8,7 @@ from pathlib import Path
 from jsonpath_ng import parse
 from joblib import Parallel, delayed
 import time
+import os
 
 st.title("LLM Launcher")
 
@@ -93,7 +94,14 @@ def run_llm(run_data):
 
     return llm_response
 
-st.write("Add an LLM model to begin")
+with st.sidebar:
+    st.header("LLM Launcher")
+    st.write("A tool to launch multiple LLMs at once for testing and fun!")
+    st.write("Make sure to add some LLMs, once you've done that we will save all configurations locally for you.")
+    st.divider()
+    st.write("Made with ❤️ by [Cameron Battagler](https://github.com/cbattlegear)")
+    st.write("Contribute on [GitHub](https://github.com/cbattlegear/llmlauncher)")
+    st.write(f"Version [{os.environ.get('LAUNCHER_VERSION', 'Development')}](https://github.com/cbattlegear/llmlauncher/releases/tag/{os.environ.get('LAUNCHER_VERSION', 'Development')})")
 
 with st.expander("Currently Configured LLMs"):
     col1, col2, col3 = st.columns((1, 1, 1))
