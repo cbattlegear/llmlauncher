@@ -14,4 +14,4 @@ Either way you use it all of your data and settings are kept locally and only us
 
 ## Contributing new models
 
-Check out model_types/azure_openai.toml.example to see a working example with comments. Once you've created one feel free to send over a PR!
+Check out [model_types/azure_openai.toml.example](model_types/azure_openai.toml.example) to see a working example with comments. Once you've created one feel free to send over a PR!
