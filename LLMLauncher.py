@@ -16,18 +16,33 @@ llms = {
     "llm_objects": {}
 }
 
+prompts = {
+    "system_prompt": "",
+    "user_prompt": ""
+}
+
 llm_configs = {}
 
 localS = LocalStorage()
 
+if "run" not in st.session_state:
+    st.session_state.run = False
+
 if "llms" in st.session_state:
     llms = st.session_state.llms
-    localS.setItem("llms", llms)
 elif localS.getItem("llms") is not None:
     llms = localS.getItem("llms")
     st.session_state.llms = llms
 else:
     st.session_state.llms = llms
+
+if "prompts" in st.session_state:
+    prompts = st.session_state.prompts
+elif localS.getItem("prompts") is not None:
+    prompts = localS.getItem("prompts")
+    st.session_state.prompts = prompts
+else:
+    st.session_state.prompts = prompts
 
 toml_directory = Path("model_types")
 for toml_file in toml_directory.glob("*.toml"):
@@ -94,6 +109,60 @@ def run_llm(run_data):
 
     return llm_response
 
+def display_llm_results():
+    with st.spinner("Generating Responses..."):
+        display_list = []
+        item_index = 0
+        run_list = []
+        for llm_key, llm in llms["llm_objects"].items():
+            display_list.append(llm['llm_name'] + " (" + llm['llm_model'] + ")")
+            run_data = {}
+            endpoint_template = Template(llm_configs[llm['llm_model']]["templates"]["endpoint_template"])
+            header_template = Template(llm_configs[llm['llm_model']]["templates"]["header_template"])
+            data_template = Template(llm_configs[llm['llm_model']]["templates"]["data_template"])
+            
+            for id in endpoint_template.get_identifiers():
+                llms["llm_objects"][llm_key][id] = llms["llm_objects"][llm_key][id].rstrip("/")
+
+            url = endpoint_template.substitute(llms["llm_objects"][llm_key])
+
+            headers_json = header_template.substitute(llms["llm_objects"][llm_key])
+            headers = json.loads(headers_json)
+            
+            data_json = data_template.substitute(llm_system_prompt=llm_system_prompt, llm_user_prompt=llm_user_prompt)
+            data = json.loads(data_json)
+
+            run_data["url"] = url
+            run_data["headers"] = headers
+            run_data["data"] = data
+            run_data["display_name"] = llm['llm_name'] + " (" + llm['llm_model'] + ")"
+            run_data["index"] = item_index
+            run_data["json_path"] = llm_configs[llm['llm_model']]["templates"]["response_path"]
+            run_list.append(run_data)
+            item_index += 1
+
+        parallel = Parallel(n_jobs=6, return_as="list")
+
+        output_gen = parallel(delayed(run_llm)(run_data) for run_data in run_list)
+        response_tabs = st.tabs(display_list)
+        
+        for output in output_gen:
+            #runtime_string = output["run_time"].strftime("%S.%f").rstrip("0")
+            with response_tabs[output["response_index"]]:
+                st.write(output["llm_text"])
+                with st.expander("Response Details"):
+                    st.write(f"Runtime: {output['run_time']:.3f}s")
+                    st.write(output["llm_details"])
+
+        prompts = {
+            "system_prompt": llm_system_prompt,
+            "user_prompt": llm_user_prompt
+        }
+
+        st.session_state.run = False
+        st.session_state.prompts = prompts
+        localS.setItem("prompts", prompts, key="set_prompts_on_generate")
+
 with st.sidebar:
     st.header("LLM Launcher")
     st.write("A tool to launch multiple LLMs at once for testing and fun!")
@@ -117,60 +186,29 @@ if st.button("Add LLM"):
     add_llm_dialog()
 
 if len(st.session_state.llms["llm_objects"]) > 0:
-    llm_system_prompt_local = None
-    if localS.getItem("llm_system_prompt") is not None:
-        llm_system_prompt_local = localS.getItem("llm_system_prompt")
-    
-    llm_user_prompt_local = None
-    if localS.getItem("llm_user_prompt") is not None:
-        llm_user_prompt_local = localS.getItem("llm_user_prompt")
+    llm_system_prompt = st.text_area("System Prompt", height=100, value=st.session_state.prompts["system_prompt"])
+    llm_user_prompt = st.text_area("User Prompt", height=100, value=st.session_state.prompts["user_prompt"])
 
-    llm_system_prompt = st.text_area("System Prompt", height=100, value=llm_system_prompt_local)
-    llm_user_prompt = st.text_area("User Prompt", height=100, value=llm_user_prompt_local)
-    if st.button("Generate Responses"):
-        with st.spinner("Generating Responses..."):
-            display_list = []
-            item_index = 0
-            run_list = []
-            for llm_key, llm in llms["llm_objects"].items():
-                display_list.append(llm['llm_name'] + " (" + llm['llm_model'] + ")")
-                run_data = {}
-                endpoint_template = Template(llm_configs[llm['llm_model']]["templates"]["endpoint_template"])
-                header_template = Template(llm_configs[llm['llm_model']]["templates"]["header_template"])
-                data_template = Template(llm_configs[llm['llm_model']]["templates"]["data_template"])
-                
-                for id in endpoint_template.get_identifiers():
-                    llms["llm_objects"][llm_key][id] = llms["llm_objects"][llm_key][id].rstrip("/")
+    col1, col2 = st.columns((1, 1))
 
-                url = endpoint_template.substitute(llms["llm_objects"][llm_key])
+    if col1.button("Generate Responses"):
+        st.session_state.run = True
+        st.rerun()
 
-                headers_json = header_template.substitute(llms["llm_objects"][llm_key])
-                headers = json.loads(headers_json)
-                
-                data_json = data_template.substitute(llm_system_prompt=llm_system_prompt, llm_user_prompt=llm_user_prompt)
-                data = json.loads(data_json)
+    if col2.button("Clear Responses and Prompts"):
+        prompts = {
+            "system_prompt": None,
+            "user_prompt": None
+        }
+        st.session_state.prompts = prompts
+        st.rerun()
 
-                run_data["url"] = url
-                run_data["headers"] = headers
-                run_data["data"] = data
-                run_data["display_name"] = llm['llm_name'] + " (" + llm['llm_model'] + ")"
-                run_data["index"] = item_index
-                run_data["json_path"] = llm_configs[llm['llm_model']]["templates"]["response_path"]
-                run_list.append(run_data)
-                item_index += 1
+    if st.session_state.run:
+        display_llm_results()
+        
 
-            parallel = Parallel(n_jobs=6, return_as="list")
+if "llms" in st.session_state:
+    localS.setItem("llms", llms)
 
-            output_gen = parallel(delayed(run_llm)(run_data) for run_data in run_list)
-            response_tabs = st.tabs(display_list)
-            
-            for output in output_gen:
-                #runtime_string = output["run_time"].strftime("%S.%f").rstrip("0")
-                with response_tabs[output["response_index"]]:
-                    st.write(output["llm_text"])
-                    with st.expander("Response Details"):
-                        st.write(f"Runtime: {output['run_time']:.3f}s")
-                        st.write(output["llm_details"])
-
-            localS.setItem("llm_system_prompt", llm_system_prompt, key="llm_system_prompt")
-            localS.setItem("llm_user_prompt", llm_user_prompt, key="llm_user_prompt")
+if "prompts" in st.session_state:
+    localS.setItem("prompts", prompts, key="set_prompts")
