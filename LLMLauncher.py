@@ -5,7 +5,9 @@ import requests
 import toml
 import json
 from pathlib import Path
-from jsonpath_ng import jsonpath, parse
+from jsonpath_ng import parse
+from joblib import Parallel, delayed
+import time
 
 st.title("LLM Launcher")
 
@@ -72,6 +74,25 @@ def edit_llm(llm_name):
     if llm_name in st.session_state.llms["llm_objects"]:
         edit_llm_dialog(llm_name)
 
+def run_llm(run_data):
+    start_time = time.time()
+    response = requests.post(run_data['url'], headers=run_data['headers'], json=run_data['data'])
+    llm_response = {}
+    llm_response["status_code"] = response.status_code
+    llm_response["response_index"] = run_data["index"]
+
+    if response.status_code == 200:
+        path_expr = parse(run_data['json_path'])
+        llm_response["llm_text"] = [match.value for match in path_expr.find(response.json())][0]
+        llm_response["llm_details"] = response.json()
+    else:
+        llm_response["llm_text"] = "Request failed"
+        llm_response["llm_details"] = response.text
+
+    llm_response["run_time"] = (time.time() - start_time)
+
+    return llm_response
+
 st.write("Add an LLM model to begin")
 
 with st.expander("Currently Configured LLMs"):
@@ -101,35 +122,43 @@ if len(st.session_state.llms["llm_objects"]) > 0:
     if st.button("Generate Responses"):
         with st.spinner("Generating Responses..."):
             display_list = []
+            item_index = 0
+            run_list = []
             for llm_key, llm in llms["llm_objects"].items():
                 display_list.append(llm['llm_name'] + " (" + llm['llm_model'] + ")")
-
-            response_tabs = st.tabs(display_list)
-            item_index = 0
-            for llm_key, llm in llms["llm_objects"].items():
+                run_data = {}
                 endpoint_template = Template(llm_configs[llm['llm_model']]["templates"]["endpoint_template"])
                 header_template = Template(llm_configs[llm['llm_model']]["templates"]["header_template"])
                 data_template = Template(llm_configs[llm['llm_model']]["templates"]["data_template"])
-
-
+                
                 url = endpoint_template.substitute(llms["llm_objects"][llm_key])
-
                 headers_json = header_template.substitute(llms["llm_objects"][llm_key])
-
                 headers = json.loads(headers_json)
                 
                 data_json = data_template.substitute(llm_system_prompt=llm_system_prompt, llm_user_prompt=llm_user_prompt)
                 data = json.loads(data_json)
 
-                response = requests.post(url, headers=headers, json=data)
-                with response_tabs[item_index]:
-                    if response.status_code == 200:
-                        path_expr = parse(llm_configs[llm['llm_model']]["templates"]["response_path"])
-                        st.write([match.value for match in path_expr.find(response.json())][0])
-                        with st.expander("Response Details"):
-                            st.write(response.json())
-                    else:
-                        st.write("Request failed:", response.status_code, response.text)
+                run_data["url"] = url
+                run_data["headers"] = headers
+                run_data["data"] = data
+                run_data["display_name"] = llm['llm_name'] + " (" + llm['llm_model'] + ")"
+                run_data["index"] = item_index
+                run_data["json_path"] = llm_configs[llm['llm_model']]["templates"]["response_path"]
+                run_list.append(run_data)
                 item_index += 1
+
+            parallel = Parallel(n_jobs=6, return_as="list")
+
+            output_gen = parallel(delayed(run_llm)(run_data) for run_data in run_list)
+            response_tabs = st.tabs(display_list)
+            
+            for output in output_gen:
+                #runtime_string = output["run_time"].strftime("%S.%f").rstrip("0")
+                with response_tabs[output["response_index"]]:
+                    st.write(output["llm_text"])
+                    with st.expander("Response Details"):
+                        st.write(f"Runtime: {output['run_time']:.3f}s")
+                        st.write(output["llm_details"])
+
             localS.setItem("llm_system_prompt", llm_system_prompt, key="llm_system_prompt")
             localS.setItem("llm_user_prompt", llm_user_prompt, key="llm_user_prompt")
