@@ -29,10 +29,12 @@ description = "API Key"
 
 [templates]
 # The endpoint_template is the URL that the API call will be made to
+# When creating the endpoint_template assume no inputs from the user will end with a trailing slash
 endpoint_template = "$endpoint/openai/deployments/$deployment_name/chat/completions?api-version=2024-02-01"
 
 # The data_template is the JSON data that will be sent in the body of the API call
 # To use the system and user prompts from the UI, you can use the $llm_system_prompt and $llm_user_prompt variables
+# Must be a valid JSON string
 data_template = """
 {
     "messages": [
@@ -43,6 +45,7 @@ data_template = """
 """
 
 # The header_template is the headers that will be sent with the API call
+# Must be a valid JSON string
 header_template = """
 {
     "Content-Type": "application/json",
