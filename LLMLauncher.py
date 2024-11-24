@@ -10,6 +10,8 @@ from joblib import Parallel, delayed
 import time
 import os
 
+st.set_page_config(page_title="LLM Launcher", page_icon="🚀", layout="wide")
+
 st.title("LLM Launcher")
 
 llms = {
