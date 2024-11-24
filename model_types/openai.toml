@@ -1,0 +1,53 @@
+[information]
+model_name = "OpenAI"
+
+[[properties]]
+name = "model_name"
+description = "Model"
+
+[[properties]]
+name = "api_key"
+description = "API Key"
+
+[templates]
+endpoint_template = "https://api.openai.com/v1/chat/completions"
+data_template = """
+{
+  "model": "$model_name",
+  "messages": [
+    {
+      "role": "system",
+      "content": [
+        {
+          "type": "text",
+          "text": "$llm_system_prompt"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "$llm_user_prompt"
+        }
+      ]
+    }
+  ],
+  "response_format": {
+    "type": "text"
+  },
+  "temperature": 1,
+  "max_tokens": 2048,
+  "top_p": 1,
+  "frequency_penalty": 0,
+  "presence_penalty": 0
+}
+"""
+header_template = """
+{
+    "Content-Type": "application/json",
+    "Authorization": "Bearer $api_key"
+}
+"""
+response_path = "$.choices[0].message.content"

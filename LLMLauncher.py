@@ -121,16 +121,20 @@ def display_llm_results():
             endpoint_template = Template(llm_configs[llm['llm_model']]["templates"]["endpoint_template"])
             header_template = Template(llm_configs[llm['llm_model']]["templates"]["header_template"])
             data_template = Template(llm_configs[llm['llm_model']]["templates"]["data_template"])
-            
+
             for id in endpoint_template.get_identifiers():
                 llms["llm_objects"][llm_key][id] = llms["llm_objects"][llm_key][id].rstrip("/")
 
-            url = endpoint_template.substitute(llms["llm_objects"][llm_key])
+            llm_data = llms["llm_objects"][llm_key]
+            llm_data["llm_system_prompt"] = llm_system_prompt
+            llm_data["llm_user_prompt"] = llm_user_prompt
 
-            headers_json = header_template.substitute(llms["llm_objects"][llm_key])
+            url = endpoint_template.substitute(llm_data)
+
+            headers_json = header_template.substitute(llm_data)
             headers = json.loads(headers_json)
             
-            data_json = data_template.substitute(llm_system_prompt=llm_system_prompt, llm_user_prompt=llm_user_prompt)
+            data_json = data_template.substitute(llm_data)
             data = json.loads(data_json)
 
             run_data["url"] = url
