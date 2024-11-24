@@ -49,6 +49,7 @@ for toml_file in toml_directory.glob("*.toml"):
     with open(toml_file, "r") as f:
         llm_config = toml.load(f)
         llm_configs[llm_config["information"]["model_name"]] = llm_config
+llm_configs = dict(sorted(llm_configs.items()))
 
 @st.dialog("Add LLM")
 def add_llm_dialog():
