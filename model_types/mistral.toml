@@ -1,0 +1,28 @@
+[information]
+model_name = "Mistral - Azure AI Studio"
+
+[[properties]]
+name = "endpoint"
+description = "LLM Endpoint URL"
+
+[[properties]]
+name = "api_key"
+description = "API Key"
+
+[templates]
+endpoint_template = "$endpoint/v1/chat/completions"
+data_template = """
+{
+    "messages": [
+        {"role": "system", "content": "$llm_system_prompt"},
+        {"role": "user", "content": "$llm_user_prompt"}
+    ]
+}
+"""
+header_template = """
+{
+    "Content-Type": "application/json",
+    "Authorization": "Bearer $api_key"
+}
+"""
+response_path = "$.choices[0].message.content"
