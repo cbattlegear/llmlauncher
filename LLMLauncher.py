@@ -13,12 +13,16 @@ import os
 from azure.monitor.opentelemetry import configure_azure_monitor
 from opentelemetry import trace
 
-if "APPLICATIONINSIGHTS_CONNECTION_STRING" in os.environ:
-    configure_azure_monitor(
-        enable_live_metrics=True
-    )
-
 st.set_page_config(page_title="LLM Launcher", page_icon="🚀", layout="wide")
+
+@st.cache_resource
+def _configure_logging():
+    if "APPLICATIONINSIGHTS_CONNECTION_STRING" in os.environ:
+        configure_azure_monitor(
+            enable_live_metrics=True
+        )
+
+_configure_logging()
 
 st.title("LLM Launcher")
 
