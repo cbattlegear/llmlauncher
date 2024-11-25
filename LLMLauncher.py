@@ -10,6 +10,14 @@ from joblib import Parallel, delayed
 import time
 import os
 
+from azure.monitor.opentelemetry import configure_azure_monitor
+from opentelemetry import trace
+
+if "APPLICATIONINSIGHTS_CONNECTION_STRING" in os.environ:
+    configure_azure_monitor(
+        enable_live_metrics=True
+    )
+
 st.set_page_config(page_title="LLM Launcher", page_icon="🚀", layout="wide")
 
 st.title("LLM Launcher")
@@ -180,14 +188,17 @@ with st.sidebar:
     st.write(f"Version [{os.environ.get('LAUNCHER_VERSION', 'Development')}](https://github.com/cbattlegear/llmlauncher/releases/tag/{os.environ.get('LAUNCHER_VERSION', 'Development')})")
 
 with st.expander("Currently Configured LLMs"):
-    col1, col2, col3 = st.columns((1, 1, 1))
+    column_list = []
+    row_count = 0
     for llm_key, llm in llms["llm_objects"].items():
-        with col1:
+        column_list.append(st.columns((1, 0.5, 0.5)))
+        with column_list[row_count][0]:
             st.write(llm["llm_name"] + " (" + llm["llm_model"] + ")") 
-        with col2:
+        with column_list[row_count][1]:
             st.button("Edit", key=llm_key + "edit", on_click=edit_llm, args=[llm_key], type="secondary", icon=":material/edit:")
-        with col3:
+        with column_list[row_count][2]:
             st.button("Remove", key=llm_key + "delete", on_click=del_llm, args=[llm_key], type="primary", icon=":material/delete:")
+        row_count += 1
 
 if st.button("Add LLM"):
     add_llm_dialog()
