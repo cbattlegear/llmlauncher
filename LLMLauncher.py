@@ -248,7 +248,8 @@ def main() -> None:
                 st.rerun()
 
             if st.session_state.run:
-                display_llm_results(llm_system_prompt, llm_user_prompt, llms, llm_configs)
+                with tracer.start_as_current_span("Generate Responses"):
+                    display_llm_results(llm_system_prompt, llm_user_prompt, llms, llm_configs)
                 
 
         if "llms" in st.session_state:
