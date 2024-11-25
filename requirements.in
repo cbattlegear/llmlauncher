@@ -4,3 +4,4 @@ requests
 jsonpath-ng
 toml
 joblib
+azure-monitor-opentelemetry
