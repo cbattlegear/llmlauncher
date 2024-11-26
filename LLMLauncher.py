@@ -1,5 +1,8 @@
 import streamlit as st
 from streamlit_local_storage import LocalStorage
+from streamlit.runtime.scriptrunner import get_script_run_ctx
+from streamlit import runtime
+
 from string import Template
 import requests
 import toml
@@ -13,19 +16,22 @@ import os
 from azure.monitor.opentelemetry import configure_azure_monitor
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import ConsoleSpanExporter, BatchSpanProcessor
-from opentelemetry import trace
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader, ConsoleMetricExporter
+from opentelemetry import trace, metrics
+from opentelemetry.propagate import extract
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 def LocalStorageManager():
     return LocalStorage()
 
 @st.cache_resource()
 def _configure_logging(APPLICATIONINSIGHTS_CONNECTION_STRING):
+    os.environ["OTEL_SERVICE_NAME"] = "llm_launcher"
     print("Configuring logging")
     if APPLICATIONINSIGHTS_CONNECTION_STRING is not None:
         print("Configuring Azure Monitor")
         configure_azure_monitor()
-        tracer = trace.get_tracer(__name__)
-        return tracer
     else:
         # Set up a tracer provider
         trace.set_tracer_provider(TracerProvider())
@@ -33,8 +39,16 @@ def _configure_logging(APPLICATIONINSIGHTS_CONNECTION_STRING):
         # Configure the tracer to export spans to the console
         span_processor = BatchSpanProcessor(ConsoleSpanExporter())
         trace.get_tracer_provider().add_span_processor(span_processor)
-        tracer = trace.get_tracer(__name__)
-        return tracer
+
+
+        metrics.set_meter_provider(MeterProvider(metric_readers=[PeriodicExportingMetricReader(meter_exporter=ConsoleMetricExporter())]))
+    
+    tracer = trace.get_tracer(__name__)
+    meter = metrics.get_meter(__name__)
+
+    run_counter = meter.create_counter("run_count")
+
+    return (tracer, run_counter)
 
 @st.dialog("Add LLM")
 def add_llm_dialog(llm_configs):
@@ -76,7 +90,12 @@ def edit_llm(llm_name, llm_configs):
     if llm_name in st.session_state.llms["llm_objects"]:
         edit_llm_dialog(llm_name, llm_configs)
 
-def run_llm(run_data):
+def run_llm(run_data, ctx):
+    #tracer = trace.get_tracer(__name__)
+    #context = TraceContextTextMapPropagator().extract(carrier=ctx)
+    #with tracer.start_as_current_span(
+    #    "run_llm_model",
+    #    context=context):
     start_time = time.time()
     response = requests.post(run_data['url'], headers=run_data['headers'], json=run_data['data'])
     llm_response = {}
@@ -95,46 +114,53 @@ def run_llm(run_data):
 
     return llm_response
 
-def display_llm_results(llm_system_prompt, llm_user_prompt, llms, llm_configs):
+def display_llm_results(llm_system_prompt, llm_user_prompt, llms, llm_configs, tracer):
     with st.spinner("Generating Responses..."):
-        display_list = []
-        item_index = 0
-        run_list = []
-        for llm_key, llm in llms["llm_objects"].items():
-            display_list.append(llm['llm_name'] + " (" + llm['llm_model'] + ")")
-            run_data = {}
-            endpoint_template = Template(llm_configs[llm['llm_model']]["templates"]["endpoint_template"])
-            header_template = Template(llm_configs[llm['llm_model']]["templates"]["header_template"])
-            data_template = Template(llm_configs[llm['llm_model']]["templates"]["data_template"])
+        trace_context_carrier = {}
+        TraceContextTextMapPropagator().inject(carrier=trace_context_carrier)
+        ctx = TraceContextTextMapPropagator().extract(trace_context_carrier)
+        with tracer.start_as_current_span(
+        "generate_llm_responses",
+        kind=trace.SpanKind.SERVER,
+        context=ctx):
+            display_list = []
+            item_index = 0
+            run_list = []
+            for llm_key, llm in llms["llm_objects"].items():
+                display_list.append(llm['llm_name'] + " (" + llm['llm_model'] + ")")
+                run_data = {}
+                endpoint_template = Template(llm_configs[llm['llm_model']]["templates"]["endpoint_template"])
+                header_template = Template(llm_configs[llm['llm_model']]["templates"]["header_template"])
+                data_template = Template(llm_configs[llm['llm_model']]["templates"]["data_template"])
 
-            for id in endpoint_template.get_identifiers():
-                llms["llm_objects"][llm_key][id] = llms["llm_objects"][llm_key][id].rstrip("/")
+                for id in endpoint_template.get_identifiers():
+                    llms["llm_objects"][llm_key][id] = llms["llm_objects"][llm_key][id].rstrip("/")
 
-            llm_data = llms["llm_objects"][llm_key]
-            llm_data["llm_system_prompt"] = llm_system_prompt
-            llm_data["llm_user_prompt"] = llm_user_prompt
+                llm_data = llms["llm_objects"][llm_key]
+                llm_data["llm_system_prompt"] = llm_system_prompt
+                llm_data["llm_user_prompt"] = llm_user_prompt
 
-            url = endpoint_template.substitute(llm_data)
+                url = endpoint_template.substitute(llm_data)
 
-            headers_json = header_template.substitute(llm_data)
-            headers = json.loads(headers_json)
-            
-            data_json = data_template.substitute(llm_data)
-            data = json.loads(data_json)
+                headers_json = header_template.substitute(llm_data)
+                headers = json.loads(headers_json)
+                
+                data_json = data_template.substitute(llm_data)
+                data = json.loads(data_json)
 
-            run_data["url"] = url
-            run_data["headers"] = headers
-            run_data["data"] = data
-            run_data["display_name"] = llm['llm_name'] + " (" + llm['llm_model'] + ")"
-            run_data["index"] = item_index
-            run_data["json_path"] = llm_configs[llm['llm_model']]["templates"]["response_path"]
-            run_list.append(run_data)
-            item_index += 1
+                run_data["url"] = url
+                run_data["headers"] = headers
+                run_data["data"] = data
+                run_data["display_name"] = llm['llm_name'] + " (" + llm['llm_model'] + ")"
+                run_data["index"] = item_index
+                run_data["json_path"] = llm_configs[llm['llm_model']]["templates"]["response_path"]
+                run_list.append(run_data)
+                item_index += 1
 
-        parallel = Parallel(n_jobs=6, return_as="list")
+            parallel = Parallel(n_jobs=6, return_as="list")
 
-        output_gen = parallel(delayed(run_llm)(run_data) for run_data in run_list)
-        response_tabs = st.tabs(display_list)
+            output_gen = parallel(delayed(run_llm)(run_data, trace_context_carrier) for run_data in run_list)
+            response_tabs = st.tabs(display_list)
         
         for output in output_gen:
             #runtime_string = output["run_time"].strftime("%S.%f").rstrip("0")
@@ -154,15 +180,44 @@ def display_llm_results(llm_system_prompt, llm_user_prompt, llms, llm_configs):
         localS = LocalStorageManager()
         localS.setItem("prompts", prompts, key="set_prompts_on_generate")
 
+def get_client_ip():
+    ip = None
+    if "X_FORWARDED_FOR" in st.context.headers:
+        ip = st.context.headers["X_FORWARDED_FOR"]
+    elif "REMOTE_ADDR" in st.context.headers:
+        ip = st.context.headers["REMOTE_ADDR"]
+    else:
+        ctx = get_script_run_ctx()
+        if ctx is None:
+            ip = None
+        else: 
+            session_info = runtime.get_instance().get_client(ctx.session_id)
+            ip = session_info.request.remote_ip
+
+    return ip
+
 def main() -> None:
     st.set_page_config(page_title="LLM Launcher", page_icon="🚀", layout="wide")
+
+    llm_configs = {}
+
+    toml_directory = Path("model_types")
+    for toml_file in toml_directory.glob("*.toml"):
+        with open(toml_file, "r") as f:
+            llm_config = toml.load(f)
+            llm_configs[llm_config["information"]["model_name"]] = llm_config
+    llm_configs = dict(sorted(llm_configs.items()))
+
     if "APPLICATIONINSIGHTS_CONNECTION_STRING" in os.environ:
         appinsights = os.environ["APPLICATIONINSIGHTS_CONNECTION_STRING"]
     else:
         appinsights = None
-    tracer = _configure_logging(appinsights)
+    tracer, run_counter = _configure_logging(appinsights)
     
-    with tracer.start_as_current_span("LLM Launcher"):
+    with tracer.start_as_current_span(
+        "server_request",
+        kind=trace.SpanKind.SERVER) as span:
+        span.set_attribute("http.client_ip", get_client_ip())
         st.title("LLM Launcher")
 
         llms = {
@@ -173,8 +228,6 @@ def main() -> None:
             "system_prompt": "",
             "user_prompt": ""
         }
-
-        llm_configs = {}
 
         localS = LocalStorageManager()
 
@@ -196,13 +249,6 @@ def main() -> None:
             st.session_state.prompts = prompts
         else:
             st.session_state.prompts = prompts
-
-        toml_directory = Path("model_types")
-        for toml_file in toml_directory.glob("*.toml"):
-            with open(toml_file, "r") as f:
-                llm_config = toml.load(f)
-                llm_configs[llm_config["information"]["model_name"]] = llm_config
-        llm_configs = dict(sorted(llm_configs.items()))
 
         with st.sidebar:
             st.header("LLM Launcher")
@@ -248,8 +294,10 @@ def main() -> None:
                 st.rerun()
 
             if st.session_state.run:
-                with tracer.start_as_current_span("Generate Responses"):
-                    display_llm_results(llm_system_prompt, llm_user_prompt, llms, llm_configs)
+                run_counter.add(1, {"run": "generate_llm_responses"})
+                display_llm_results(llm_system_prompt, llm_user_prompt, llms, llm_configs, tracer)
+                for llm_key, llm in llms["llm_objects"].items():
+                    run_counter.add(1, {"run": llm_key})
                 
 
         if "llms" in st.session_state:
